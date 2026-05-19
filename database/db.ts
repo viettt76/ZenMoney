@@ -36,14 +36,60 @@ export const initDatabase = async () => {
       CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         amount REAL NOT NULL,
-        category_id INTEGER NOT NULL,
+        category_id INTEGER,
         date TEXT NOT NULL,
         note TEXT,
-        type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
+        type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'transfer')),
+        payment_method TEXT DEFAULT 'e-wallet',
+        balance_cash REAL DEFAULT 0,
+        balance_e_wallet REAL DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (category_id) REFERENCES categories (id)
       );
     `);
+
+        // Migration: Update schema for balance and 'transfer' type
+        try {
+            const tableInfo: any = await getAllRows("PRAGMA table_info(transactions)");
+            const hasBalance = tableInfo.some((col: any) => col.name === 'balance_cash');
+            const hasTransferInCheck = false; // We can't easily check CHECK constraint via PRAGMA table_info
+
+            // We'll recreate the table if balance column is missing. 
+            // This also ensures the CHECK constraint is updated.
+            if (!hasBalance) {
+                await db.execAsync("ALTER TABLE transactions RENAME TO transactions_old");
+                await db.execAsync(`
+                    CREATE TABLE transactions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        amount REAL NOT NULL,
+                        category_id INTEGER,
+                        date TEXT NOT NULL,
+                        note TEXT,
+                        type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'transfer')),
+                        payment_method TEXT DEFAULT 'e-wallet',
+                        balance_cash REAL DEFAULT 0,
+                        balance_e_wallet REAL DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (category_id) REFERENCES categories (id)
+                    )
+                `);
+
+                // We need to handle cases where payment_method might not exist in old table yet
+                const hasPaymentMethod = tableInfo.some((col: any) => col.name === 'payment_method');
+                const columns = ["id", "amount", "category_id", "date", "note", "type", "created_at"];
+                if (hasPaymentMethod) columns.push("payment_method");
+
+                const colsStr = columns.join(", ");
+                await db.execAsync(`
+                    INSERT INTO transactions (${colsStr})
+                    SELECT ${colsStr} FROM transactions_old
+                `);
+                await db.execAsync("DROP TABLE transactions_old");
+                await db.execAsync("CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)");
+            }
+        } catch (e) {
+            console.error("Migration error:", e);
+        }
 
         // Create recurring_transactions table
         await db.execAsync(`
@@ -56,11 +102,19 @@ export const initDatabase = async () => {
         next_date TEXT NOT NULL,
         note TEXT,
         type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
+        payment_method TEXT DEFAULT 'e-wallet',
         is_active INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (category_id) REFERENCES categories (id)
       );
     `);
+
+        // Migration: Add payment_method column to recurring_transactions if it doesn't exist
+        try {
+            await db.execAsync("ALTER TABLE recurring_transactions ADD COLUMN payment_method TEXT DEFAULT 'e-wallet'");
+        } catch {
+            // Column likely already exists, ignore
+        }
 
         // Create indexes for performance
         await db.execAsync(`

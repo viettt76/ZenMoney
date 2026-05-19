@@ -8,7 +8,7 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Card, FAB, IconButton, Text } from 'react-native-paper';
+import { Button, Card, FAB, IconButton, Modal, Portal, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const HomeScreen = () => {
@@ -23,14 +23,17 @@ const HomeScreen = () => {
     const [totalBalance, setTotalBalance] = useState(0);
     const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
     const [refreshing, setRefreshing] = useState(false);
+    const [balanceBreakdown, setBalanceBreakdown] = useState({ cash: 0, eWallet: 0 });
+    const [visible, setVisible] = useState(false);
 
     const loadData = React.useCallback(async () => {
         try {
             // Get month summary based on currentDate
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth() + 1; // 0-indexed
-            const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
-            const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+            // Bug fix: Use manual date formatting to avoid timezone offset issues
+            const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+            const endDate = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
 
             const summaryData = await TransactionService.getSummary(startDate, endDate);
             setSummary({ income: summaryData.income, expense: summaryData.expense });
@@ -38,6 +41,9 @@ const HomeScreen = () => {
             // Get total balance (all time)
             const balance = await TransactionService.getTotalBalance();
             setTotalBalance(balance);
+
+            const breakdown = await TransactionService.getBalanceByPaymentMethod();
+            setBalanceBreakdown(breakdown);
 
             // Get recent transactions
             const transactions = await TransactionService.getAllTransactions(10);
@@ -122,7 +128,15 @@ const HomeScreen = () => {
                         </View>
 
                         <View style={styles.balanceContainer}>
-                            <Text style={styles.balanceLabel}>{t('balance_total')}</Text>
+                            <View style={styles.balanceHeader}>
+                                <Text style={styles.balanceLabel}>{t('balance_total')}</Text>
+                                <IconButton
+                                    icon="eye"
+                                    size={20}
+                                    onPress={() => setVisible(true)}
+                                    style={{ margin: 0 }}
+                                />
+                            </View>
                             <Text
                                 style={[styles.balanceAmount, { color: totalBalance >= 0 ? '#4CAF50' : '#F44336' }]}
                             >
@@ -131,6 +145,27 @@ const HomeScreen = () => {
                         </View>
                     </Card.Content>
                 </Card>
+
+                <Portal>
+                    <Modal visible={visible} onDismiss={() => setVisible(false)} contentContainerStyle={styles.modalContent}>
+                        <Text style={styles.sectionTitle}>{t('balance_total')}</Text>
+                        <View style={styles.breakdownItem}>
+                            <Text style={styles.breakdownLabel}>{t('cash')}</Text>
+                            <Text style={[styles.breakdownAmount, { color: balanceBreakdown.cash >= 0 ? '#4CAF50' : '#F44336' }]}>
+                                {formatMoney(balanceBreakdown.cash)}
+                            </Text>
+                        </View>
+                        <View style={styles.breakdownItem}>
+                            <Text style={styles.breakdownLabel}>{t('e_wallet')}</Text>
+                            <Text style={[styles.breakdownAmount, { color: balanceBreakdown.eWallet >= 0 ? '#4CAF50' : '#F44336' }]}>
+                                {formatMoney(balanceBreakdown.eWallet)}
+                            </Text>
+                        </View>
+                        <Button onPress={() => setVisible(false)} style={{ marginTop: 16 }}>
+                            {t('ok')}
+                        </Button>
+                    </Modal>
+                </Portal>
 
                 {/* Recent Transactions */}
                 <View style={styles.section}>
@@ -226,6 +261,34 @@ const styles = StyleSheet.create({
     },
     balanceAmount: {
         fontSize: 24,
+        fontWeight: 'bold',
+    },
+    balanceHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 4,
+    },
+    modalContent: {
+        backgroundColor: 'white',
+        padding: 20,
+        margin: 20,
+        borderRadius: 8,
+    },
+    breakdownItem: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
+    },
+    breakdownLabel: {
+        fontSize: 16,
+        color: '#333',
+    },
+    breakdownAmount: {
+        fontSize: 16,
         fontWeight: 'bold',
     },
     section: {

@@ -69,30 +69,55 @@ class TransactionService {
     }
 
     // Add new transaction
-    async addTransaction(amount: number, categoryId: number, date: string, note: string, type: string): Promise<number> {
+    async addTransaction(amount: number, categoryId: number | null, date: string, note: string, type: string, paymentMethod: string = 'e-wallet'): Promise<number> {
         try {
             const result = await executeQuery(
-                'INSERT INTO transactions (amount, category_id, date, note, type) VALUES (?, ?, ?, ?, ?)',
-                [amount ?? null, categoryId ?? null, date ?? null, note ?? null, type ?? null]
+                'INSERT INTO transactions (amount, category_id, date, note, type, payment_method) VALUES (?, ?, ?, ?, ?, ?)',
+                [amount ?? null, categoryId ?? null, date ?? null, note ?? null, type ?? null, paymentMethod ?? 'e-wallet']
             );
-            return result.lastInsertRowId;
+            const newId = result.lastInsertRowId;
+            await this.recalculateBalances();
+            return newId;
         } catch (error) {
             console.error('Error adding transaction:', error);
             throw error;
         }
     }
 
-    // Update transaction
-    async updateTransaction(id: number, amount: number, categoryId: number, date: string, note: string): Promise<boolean> {
+    // Add transfer between sources
+    async addTransfer(amount: number, fromMethod: 'cash' | 'e-wallet', date: string, note: string): Promise<number> {
         try {
-            // Fetch category type
-            const result = await getFirstRow('SELECT type FROM categories WHERE id = ?', [categoryId ?? null]);
-            const type = result ? result.type : 'expense';
+            const result = await executeQuery(
+                'INSERT INTO transactions (amount, category_id, date, note, type, payment_method) VALUES (?, ?, ?, ?, ?, ?)',
+                [amount ?? null, null, date ?? null, note ?? null, 'transfer', fromMethod]
+            );
+            const newId = result.lastInsertRowId;
+            await this.recalculateBalances();
+            return newId;
+        } catch (error) {
+            console.error('Error adding transfer:', error);
+            throw error;
+        }
+    }
+
+    // Update transaction
+    async updateTransaction(id: number, amount: number, categoryId: number | null, date: string, note: string, paymentMethod: string = 'e-wallet'): Promise<boolean> {
+        try {
+            let type = 'expense';
+            if (categoryId) {
+                const result = await getFirstRow('SELECT type FROM categories WHERE id = ?', [categoryId]);
+                type = result ? result.type : 'expense';
+            } else {
+                // If no category, might be a transfer
+                const tx = await this.getTransactionById(id);
+                type = tx?.type || 'expense';
+            }
 
             await executeQuery(
-                'UPDATE transactions SET amount = ?, category_id = ?, date = ?, note = ?, type = ? WHERE id = ?',
-                [amount ?? null, categoryId ?? null, date ?? null, note ?? null, type ?? null, id ?? null]
+                'UPDATE transactions SET amount = ?, category_id = ?, date = ?, note = ?, type = ?, payment_method = ? WHERE id = ?',
+                [amount ?? null, categoryId ?? null, date ?? null, note ?? null, type ?? null, paymentMethod ?? 'e-wallet', id ?? null]
             );
+            await this.recalculateBalances();
             return true;
         } catch (error) {
             console.error('Error updating transaction:', error);
@@ -104,6 +129,7 @@ class TransactionService {
     async deleteTransaction(id: number): Promise<boolean> {
         try {
             await executeQuery('DELETE FROM transactions WHERE id = ?', [id ?? null]);
+            await this.recalculateBalances();
             return true;
         } catch (error) {
             console.error('Error deleting transaction:', error);
@@ -176,7 +202,7 @@ class TransactionService {
     }
 
     // Search transactions with filters
-    async searchTransactions(filters: { startDate?: string; endDate?: string; type?: string; categoryId?: number; limit?: number }): Promise<Transaction[]> {
+    async searchTransactions(filters: { startDate?: string; endDate?: string; type?: string; categoryId?: number; paymentMethod?: string; limit?: number }): Promise<Transaction[]> {
         try {
             let query = `
                 SELECT t.*, c.name as category_name, c.color as category_color, c.icon as category_icon
@@ -201,6 +227,10 @@ class TransactionService {
             if (filters.categoryId) {
                 query += ' AND t.category_id = ?';
                 params.push(filters.categoryId);
+            }
+            if (filters.paymentMethod && filters.paymentMethod !== 'all') {
+                query += ' AND t.payment_method = ?';
+                params.push(filters.paymentMethod);
             }
 
             query += ' ORDER BY t.date DESC, t.created_at DESC';
@@ -232,6 +262,87 @@ class TransactionService {
             return income.total - expense.total;
         } catch (error) {
             console.error('Error getting total balance:', error);
+            throw error;
+        }
+    }
+
+    // Get balance broken down by payment method
+    async getBalanceByPaymentMethod(): Promise<{ cash: number; eWallet: number }> {
+        try {
+            const rows = await getAllRows(
+                `SELECT type, payment_method, SUM(amount) as total 
+                 FROM transactions 
+                 GROUP BY type, payment_method`
+            );
+
+            let cash = 0;
+            let eWallet = 0;
+
+            rows.forEach((row: any) => {
+                const amount = row.total;
+                const method = row.payment_method || 'e-wallet';
+
+                if (row.type === 'income') {
+                    if (method === 'cash') cash += amount;
+                    else eWallet += amount;
+                } else if (row.type === 'expense') {
+                    if (method === 'cash') cash -= amount;
+                    else eWallet -= amount;
+                } else if (row.type === 'transfer') {
+                    if (method === 'cash') {
+                        cash -= amount;
+                        eWallet += amount;
+                    } else {
+                        eWallet -= amount;
+                        cash += amount;
+                    }
+                }
+            });
+
+            return { cash, eWallet };
+        } catch (error) {
+            console.error('Error getting balance by payment method:', error);
+            throw error;
+        }
+    }
+
+    // Recalculate all balances in chronological order
+    async recalculateBalances() {
+        try {
+            const transactions = await getAllRows(
+                'SELECT * FROM transactions ORDER BY date ASC, id ASC'
+            );
+
+            let currentCash = 0;
+            let currentEWallet = 0;
+
+            for (const tx of transactions) {
+                const amount = tx.amount;
+                const method = tx.payment_method || 'e-wallet';
+
+                if (tx.type === 'income') {
+                    if (method === 'cash') currentCash += amount;
+                    else currentEWallet += amount;
+                } else if (tx.type === 'expense') {
+                    if (method === 'cash') currentCash -= amount;
+                    else currentEWallet -= amount;
+                } else if (tx.type === 'transfer') {
+                    if (method === 'cash') {
+                        currentCash -= amount;
+                        currentEWallet += amount;
+                    } else {
+                        currentEWallet -= amount;
+                        currentCash += amount;
+                    }
+                }
+
+                await executeQuery(
+                    'UPDATE transactions SET balance_cash = ?, balance_e_wallet = ? WHERE id = ?',
+                    [currentCash, currentEWallet, tx.id]
+                );
+            }
+        } catch (error) {
+            console.error('Error recalculating balances:', error);
             throw error;
         }
     }

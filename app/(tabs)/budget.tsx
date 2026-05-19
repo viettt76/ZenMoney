@@ -32,6 +32,12 @@ export default function BudgetScreen() {
     const [totalSpent, setTotalSpent] = useState(0);
     const [totalLimit, setTotalLimit] = useState(0);
 
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth() + 1;
+    // Bug fix: Use manual date formatting instead of toISOString() to avoid timezone offset issues
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
+
     const loadData = useCallback(async () => {
         try {
             // 1. Get all categories
@@ -42,10 +48,7 @@ export default function BudgetScreen() {
             );
 
             // 2. Get expenses for this month
-            const year = currentDate.getFullYear();
-            const month = currentDate.getMonth() + 1;
-            const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
-            const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+            // Dates are now calculated in component scope
 
             // Get summary by category for this month
             // We need to map "Spent" to each category
@@ -96,7 +99,7 @@ export default function BudgetScreen() {
         } catch (error) {
             console.error(error);
         }
-    }, [currentDate]);
+    }, [currentDate, startDate, endDate]);
 
     useFocusEffect(
         useCallback(() => {
@@ -171,7 +174,7 @@ export default function BudgetScreen() {
                     else if (percent > 0.8) barColor = '#FF9800'; // Orange
 
                     return (
-                        <Card key={item.id} style={styles.card} onPress={() => router.push(`/history?categoryId=${item.id}`)}>
+                        <Card key={item.id} style={styles.card} onPress={() => router.push(`/history?categoryId=${item.id}&startDate=${startDate}&endDate=${endDate}`)}>
                             <Card.Content>
                                 <View style={styles.cardHeader}>
                                     <View style={styles.catInfo}>

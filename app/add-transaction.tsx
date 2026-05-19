@@ -19,6 +19,7 @@ export default function AddTransactionScreen() {
     const [amount, setAmount] = useState('');
     const [note, setNote] = useState('');
     const [type, setType] = useState('expense'); // 'income' or 'expense'
+    const [paymentMethod, setPaymentMethod] = useState<'cash' | 'e-wallet'>('e-wallet');
 
     // Core date state (ISO YYYY-MM-DD)
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -56,17 +57,23 @@ export default function AddTransactionScreen() {
             if (tx) {
                 setAmount(tx.amount.toString());
                 setNote(tx.note || '');
+
                 setType(tx.type);
+                setPaymentMethod(tx.payment_method || 'e-wallet');
                 setDate(tx.date);
                 setTextDate(formatDate(tx.date));
-                setSelectedCategory({
-                    id: tx.category_id,
-                    name: tx.category_name!,
-                    icon: tx.category_icon!,
-                    color: tx.category_color!,
-                    type: tx.type as any,
-                    budget_limit: 0
-                });
+                if (tx.category_id) {
+                    setSelectedCategory({
+                        id: tx.category_id,
+                        name: tx.category_name || '',
+                        icon: tx.category_icon || 'help-circle',
+                        color: tx.category_color || '#ccc',
+                        type: tx.type as any,
+                        budget_limit: 0
+                    });
+                } else {
+                    setSelectedCategory(null);
+                }
             }
         } catch (error) {
             console.error(error);
@@ -84,6 +91,7 @@ export default function AddTransactionScreen() {
                 setAmount(tx.amount.toString());
                 setNote(tx.note || '');
                 setType(tx.type);
+                setPaymentMethod(tx.payment_method || 'e-wallet'); // Bug fix: load correct payment method
                 setDate(tx.next_date);
                 setTextDate(formatDate(tx.next_date));
                 setSelectedCategory({
@@ -162,7 +170,7 @@ export default function AddTransactionScreen() {
     };
 
     const handleSaveTransaction = async (numAmount: number) => {
-        if (!selectedCategory) return;
+        if (type !== 'transfer' && !selectedCategory) return;
         try {
             if (id) {
                 // Update existing transaction
@@ -170,41 +178,54 @@ export default function AddTransactionScreen() {
                 await TransactionService.updateTransaction(
                     Number(id),
                     numAmount,
-                    selectedCategory.id,
+                    selectedCategory?.id || null,
                     date,
-                    note
+                    note,
+                    paymentMethod
                 );
             } else if (recurringId) {
                 // Update recurring transaction
                 await RecurringService.updateRecurringTransaction(
                     Number(recurringId),
                     numAmount,
-                    selectedCategory.id,
+                    selectedCategory?.id || 0,
                     frequency,
                     date, // This becomes the new next_date
                     note,
                     type,
-                    isActive ? 1 : 0
+                    isActive ? 1 : 0,
+                    paymentMethod
                 );
             } else {
                 // Add new
                 if (isRecurring) {
                     await RecurringService.addRecurringTransaction(
                         numAmount,
-                        selectedCategory.id,
+                        selectedCategory?.id || 0,
                         frequency,
                         date,
                         note,
-                        type
+                        type,
+                        paymentMethod
                     );
                 } else {
-                    await TransactionService.addTransaction(
-                        numAmount,
-                        selectedCategory.id,
-                        date,
-                        note,
-                        type
-                    );
+                    if (type === 'transfer') {
+                        await TransactionService.addTransfer(
+                            numAmount,
+                            paymentMethod,
+                            date,
+                            note
+                        );
+                    } else {
+                        await TransactionService.addTransaction(
+                            numAmount,
+                            selectedCategory!.id,
+                            date,
+                            note,
+                            type,
+                            paymentMethod
+                        );
+                    }
                 }
             }
             router.back();
@@ -244,7 +265,7 @@ export default function AddTransactionScreen() {
     };
 
     const onSave = async () => {
-        if (!amount || !selectedCategory) {
+        if (!amount || (type !== 'transfer' && !selectedCategory)) {
             return;
         }
 
@@ -252,7 +273,7 @@ export default function AddTransactionScreen() {
         const numAmount = parseFloat(amount.replace(/,/g, ''));
 
         // Check Budget Limit
-        if (type === 'expense' && selectedCategory.budget_limit > 0 && !isRecurring) {
+        if (type === 'expense' && selectedCategory && selectedCategory.budget_limit > 0 && !isRecurring) {
             try {
                 // Get month range for the selected date
                 const txDate = new Date(date);
@@ -263,7 +284,7 @@ export default function AddTransactionScreen() {
 
                 const categorySummaries = await TransactionService.getSummaryByCategory(startDate, endDate, 'expense');
 
-                const currentUsage = categorySummaries.find((c: any) => c.id === selectedCategory.id)?.total || 0;
+                const currentUsage = categorySummaries.find((c: any) => selectedCategory && c.id === selectedCategory.id)?.total || 0;
                 const newTotal = currentUsage + numAmount;
                 const limit = selectedCategory.budget_limit;
                 const percentage = (newTotal / limit) * 100;
@@ -271,7 +292,7 @@ export default function AddTransactionScreen() {
                 if (newTotal > limit) {
                     Alert.alert(
                         t('budget_warning_title'),
-                        t('budget_exceeded_message', { category: selectedCategory.name }),
+                        t('budget_exceeded_message', { category: selectedCategory?.name }),
                         [
                             { text: t('cancel'), style: 'cancel', onPress: () => setLoading(false) },
                             { text: t('continue_anyway'), onPress: () => handleSaveTransaction(numAmount) }
@@ -281,7 +302,7 @@ export default function AddTransactionScreen() {
                 } else if (percentage >= 80) {
                     Alert.alert(
                         t('budget_warning_title'),
-                        t('budget_warning_message', { percent: percentage.toFixed(0), category: selectedCategory.name }),
+                        t('budget_warning_message', { percent: percentage.toFixed(0), category: selectedCategory?.name }),
                         [
                             { text: t('cancel'), style: 'cancel', onPress: () => setLoading(false) },
                             { text: t('continue_anyway'), onPress: () => handleSaveTransaction(numAmount) }
@@ -333,17 +354,20 @@ export default function AddTransactionScreen() {
                         // Logic: Save current category -> Switch Type -> Restore old category for new type
                         let oldType = type;
                         setType(val);
-                        if (oldType === 'income') {
-                            setLastIncomeCategory(selectedCategory);
-                            setSelectedCategory(lastExpenseCategory);
-                        } else {
-                            setLastExpenseCategory(selectedCategory);
-                            setSelectedCategory(lastIncomeCategory);
+                        if (val !== 'transfer') {
+                            if (oldType === 'income') {
+                                setLastIncomeCategory(selectedCategory);
+                                setSelectedCategory(lastExpenseCategory);
+                            } else {
+                                setLastExpenseCategory(selectedCategory);
+                                setSelectedCategory(lastIncomeCategory);
+                            }
                         }
                     }}
                     buttons={[
                         { value: 'expense', label: t('expense'), icon: 'arrow-down-bold-circle-outline', style: { backgroundColor: type === 'expense' ? '#ffebee' : undefined } },
                         { value: 'income', label: t('income'), icon: 'arrow-up-bold-circle-outline', style: { backgroundColor: type === 'income' ? '#e8f5e9' : undefined } },
+                        { value: 'transfer', label: t('transfer'), icon: 'swap-horizontal', style: { backgroundColor: type === 'transfer' ? '#e3f2fd' : undefined } },
                     ]}
                     style={styles.segmentedButton}
                 />
@@ -358,20 +382,47 @@ export default function AddTransactionScreen() {
                     left={<TextInput.Affix text={currency === 'VND' ? '₫' : '$'} />}
                 />
 
-                <TouchableOpacity onPress={() => setShowCategoryPicker(true)} activeOpacity={0.7}>
-                    <View pointerEvents="none">
-                        <TextInput
-                            label={t('category')}
-                            value={selectedCategory?.name}
-                            style={styles.input}
-                            mode="outlined"
-                            placeholder={t('select_category')}
-                            editable={false}
-                            right={<TextInput.Icon icon="chevron-down" />}
-                            left={selectedCategory ? <TextInput.Icon icon={selectedCategory.icon} color={selectedCategory.color} /> : undefined}
-                        />
-                    </View>
-                </TouchableOpacity>
+                {type !== 'transfer' && (
+                    <TouchableOpacity onPress={() => setShowCategoryPicker(true)} activeOpacity={0.7}>
+                        <View pointerEvents="none">
+                            <TextInput
+                                label={t('category')}
+                                value={selectedCategory?.name}
+                                style={styles.input}
+                                mode="outlined"
+                                placeholder={t('select_category')}
+                                editable={false}
+                                right={<TextInput.Icon icon="chevron-down" />}
+                                left={selectedCategory ? <TextInput.Icon icon={selectedCategory.icon} color={selectedCategory.color} /> : undefined}
+                            />
+                        </View>
+                    </TouchableOpacity>
+                )}
+
+                <View style={{ marginBottom: 16 }}>
+                    <Text style={{ marginBottom: 8, color: '#666' }}>
+                        {type === 'transfer' ? t('from_source') : t('payment_method')}
+                    </Text>
+                    <SegmentedButtons
+                        value={paymentMethod}
+                        onValueChange={(val) => setPaymentMethod(val as any)}
+                        buttons={[
+                            { value: 'e-wallet', label: t('e_wallet'), icon: 'wallet-outline' },
+                            { value: 'cash', label: t('cash'), icon: 'cash' },
+                        ]}
+                    />
+                    {type === 'transfer' && (
+                        <View style={{ marginTop: 12, alignItems: 'center' }}>
+                            <IconButton icon="arrow-down" size={20} style={{ margin: 0 }} />
+                            <View style={styles.toSourceContainer}>
+                                <Text style={styles.toSourceLabel}>{t('to_source')}: </Text>
+                                <Text style={styles.toSourceValue}>
+                                    {paymentMethod === 'cash' ? t('e_wallet') : t('cash')}
+                                </Text>
+                            </View>
+                        </View>
+                    )}
+                </View>
 
                 <TextInput
                     label={t('date')}
@@ -442,7 +493,7 @@ export default function AddTransactionScreen() {
                     onPress={onSave}
                     style={styles.saveButton}
                     loading={loading}
-                    disabled={!amount || !selectedCategory}
+                    disabled={!amount || (type !== 'transfer' && !selectedCategory)}
                 >
                     {t('save')}
                 </Button>
@@ -455,7 +506,7 @@ export default function AddTransactionScreen() {
                 onSelect={setSelectedCategory}
                 type={type}
             />
-        </View>
+        </View >
     );
 }
 
@@ -504,4 +555,21 @@ const styles = StyleSheet.create({
         paddingVertical: 6,
         backgroundColor: '#6200ee',
     },
+    toSourceContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f0f0f0',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 20,
+    },
+    toSourceLabel: {
+        color: '#666',
+        fontSize: 14,
+    },
+    toSourceValue: {
+        fontWeight: 'bold',
+        color: '#6200ee',
+        fontSize: 14,
+    }
 });

@@ -13,7 +13,8 @@ interface TransactionItemProps {
 
 const TransactionItem = ({ transaction, onPress }: TransactionItemProps) => {
     const isIncome = transaction.type === 'income';
-    const { formatMoney, language } = useSettings();
+    const isTransfer = transaction.type === 'transfer';
+    const { formatMoney, language, currency } = useSettings();
 
     const formatDate = (dateString: string) => {
         const date = new Date(dateString);
@@ -38,15 +39,25 @@ const TransactionItem = ({ transaction, onPress }: TransactionItemProps) => {
                     ]}
                 >
                     <MaterialCommunityIcons
-                        name={transaction.category_icon as any}
+                        name={isTransfer ? 'swap-horizontal' : (transaction.category_icon as any)}
                         size={24}
-                        color={transaction.category_color}
+                        color={isTransfer ? '#2196F3' : transaction.category_color}
                     />
                 </View>
 
                 <View style={styles.infoContainer}>
-                    <Text style={styles.categoryName}>{transaction.category_name}</Text>
-                    <Text style={styles.date}>{formatDate(transaction.date)}</Text>
+                    <Text style={styles.categoryName}>
+                        {isTransfer ? 'Chuyển tiền' : transaction.category_name}
+                    </Text>
+                    <View style={styles.row}>
+                        <MaterialCommunityIcons
+                            name={transaction.payment_method === 'cash' ? 'cash' : 'wallet-outline'}
+                            size={12}
+                            color="#757575"
+                            style={{ marginRight: 4 }}
+                        />
+                        <Text style={styles.date}>{formatDate(transaction.date)}</Text>
+                    </View>
                     {transaction.note ? (
                         <Text style={styles.note} numberOfLines={1}>{transaction.note}</Text>
                     ) : null}
@@ -57,11 +68,19 @@ const TransactionItem = ({ transaction, onPress }: TransactionItemProps) => {
                 <Text
                     style={[
                         styles.amount,
-                        { color: isIncome ? '#4CAF50' : '#F44336' }
+                        { color: isTransfer ? '#2196F3' : (isIncome ? '#4CAF50' : '#F44336') }
                     ]}
                 >
-                    {isIncome ? '+' : '-'}{formatMoney(transaction.amount)}
+                    {isTransfer ? '' : (isIncome ? '+' : '-')}{formatMoney(transaction.amount)}
                 </Text>
+                <View style={styles.balanceContainer}>
+                    <Text style={styles.balanceText}>
+                        C: {formatMoney(transaction.balance_cash || 0)}
+                    </Text>
+                    <Text style={styles.balanceText}>
+                        W: {formatMoney(transaction.balance_e_wallet || 0)}
+                    </Text>
+                </View>
             </View>
         </TouchableOpacity>
     );
@@ -108,6 +127,10 @@ const styles = StyleSheet.create({
     date: {
         fontSize: 13,
         color: '#757575',
+    },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'center',
         marginBottom: 2,
     },
     note: {
@@ -122,7 +145,15 @@ const styles = StyleSheet.create({
     amount: {
         fontSize: 16,
         fontWeight: 'bold',
+        marginBottom: 4,
     },
+    balanceContainer: {
+        alignItems: 'flex-end',
+    },
+    balanceText: {
+        fontSize: 10,
+        color: '#9E9E9E',
+    }
 });
 
 export default React.memo(TransactionItem);

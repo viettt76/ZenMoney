@@ -12,16 +12,17 @@ import { ActivityIndicator, Button, IconButton, Modal, Portal, Provider, Segment
 export default function HistoryScreen() {
     const { t } = useTranslation();
     const router = useRouter();
-    const { categoryId } = useLocalSearchParams();
+    const { categoryId, startDate: paramStartDate, endDate: paramEndDate } = useLocalSearchParams();
     const { language } = useSettings();
     const [transactions, setTransactions] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Filter State
     const [visible, setVisible] = useState(false);
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
+    const [startDate, setStartDate] = useState(paramStartDate as string || '');
+    const [endDate, setEndDate] = useState(paramEndDate as string || '');
     const [type, setType] = useState('all');
+    const [paymentMethod, setPaymentMethod] = useState('all');
 
     const [showStartPicker, setShowStartPicker] = useState(false);
     const [showEndPicker, setShowEndPicker] = useState(false);
@@ -34,6 +35,7 @@ export default function HistoryScreen() {
             if (endDate) filters.endDate = endDate;
             if (type !== 'all') filters.type = type;
             if (categoryId) filters.categoryId = Number(categoryId);
+            if (paymentMethod !== 'all') filters.paymentMethod = paymentMethod;
             filters.limit = 100;
 
             const data = await TransactionService.searchTransactions(filters);
@@ -43,7 +45,7 @@ export default function HistoryScreen() {
         } finally {
             setLoading(false);
         }
-    }, [startDate, endDate, type, categoryId]);
+    }, [startDate, endDate, type, categoryId, paymentMethod]); // Bug fix: added paymentMethod to dependency array
 
     useFocusEffect(
         React.useCallback(() => {
@@ -55,6 +57,7 @@ export default function HistoryScreen() {
         setStartDate('');
         setEndDate('');
         setType('all');
+        setPaymentMethod('all');
         setVisible(false);
         loadTransactions();
     };
@@ -184,6 +187,19 @@ export default function HistoryScreen() {
                                 { value: 'all', label: t('all') },
                                 { value: 'income', label: t('income') },
                                 { value: 'expense', label: t('expense') },
+                                { value: 'transfer', label: t('transfer') },
+                            ]}
+                            style={styles.segmented}
+                        />
+
+                        <Text style={styles.label}>{t('filter_payment_method')}</Text>
+                        <SegmentedButtons
+                            value={paymentMethod}
+                            onValueChange={setPaymentMethod}
+                            buttons={[
+                                { value: 'all', label: t('all') },
+                                { value: 'cash', label: t('cash') },
+                                { value: 'e-wallet', label: t('e_wallet') },
                             ]}
                             style={styles.segmented}
                         />

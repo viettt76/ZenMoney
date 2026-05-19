@@ -94,6 +94,14 @@ export const resources = {
             "expense_tag": "Expense",
             "start_date": "From Date",
             "end_date": "To Date",
+            "payment_method": "Payment Method",
+            "cash": "Cash",
+            "e_wallet": "E-Wallet",
+            "transfer": "Transfer",
+            "from_source": "From",
+            "to_source": "To",
+            "all_sources": "All Sources",
+            "filter_payment_method": "Source",
         }
     },
     vi: {
@@ -188,6 +196,14 @@ export const resources = {
             "expense_tag": "Chi",
             "start_date": "Từ ngày",
             "end_date": "Đến ngày",
+            "payment_method": "Phương thức thanh toán",
+            "cash": "Tiền mặt",
+            "e_wallet": "Ví điện tử",
+            "transfer": "Chuyển tiền",
+            "from_source": "Từ",
+            "to_source": "Đến",
+            "all_sources": "Tất cả nguồn",
+            "filter_payment_method": "Nguồn tiền",
         }
     }
 };

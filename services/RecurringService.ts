@@ -38,15 +38,15 @@ class RecurringService {
     }
 
     // Add new recurring transaction
-    async addRecurringTransaction(amount: number, categoryId: number, frequency: string, startDate: string, note: string, type: string) {
+    async addRecurringTransaction(amount: number, categoryId: number, frequency: string, startDate: string, note: string, type: string, paymentMethod: string = 'e-wallet') {
         try {
             const nextDate = this.calculateNextDate(startDate, frequency);
 
             const result = await executeQuery(
                 `INSERT INTO recurring_transactions 
-         (amount, category_id, frequency, start_date, next_date, note, type) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [amount, categoryId, frequency, startDate, nextDate, note, type]
+         (amount, category_id, frequency, start_date, next_date, note, type, payment_method) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [amount, categoryId, frequency, startDate, nextDate, note, type, paymentMethod ?? 'e-wallet']
             );
             return result.lastInsertRowId;
         } catch (error) {
@@ -56,13 +56,13 @@ class RecurringService {
     }
 
     // Update recurring transaction
-    async updateRecurringTransaction(id: number, amount: number, category_id: number, frequency: string, next_date: string, note: string, type: string, is_active: number) {
+    async updateRecurringTransaction(id: number, amount: number, category_id: number, frequency: string, next_date: string, note: string, type: string, is_active: number, paymentMethod: string = 'e-wallet') {
         try {
             await executeQuery(
                 `UPDATE recurring_transactions 
-         SET amount = ?, category_id = ?, frequency = ?, next_date = ?, note = ?, type = ?, is_active = ? 
+         SET amount = ?, category_id = ?, frequency = ?, next_date = ?, note = ?, type = ?, is_active = ?, payment_method = ? 
          WHERE id = ?`,
-                [amount, category_id, frequency, next_date, note, type, is_active, id]
+                [amount, category_id, frequency, next_date, note, type, is_active, paymentMethod ?? 'e-wallet', id]
             );
             return true;
         } catch (error) {
@@ -125,21 +125,28 @@ class RecurringService {
                 let currentNextDate = recurring.next_date;
                 let count = 0;
 
-                // Loop to catch up on missed occurrences
-                while (currentNextDate <= today) {
+                // Bug fix: Only create a transaction for TODAY, skip all missed past dates
+                // (which may have been skipped due to inactivity).
+                // Advance next_date to today first, then create exactly 1 transaction for today.
+                while (currentNextDate < today) {
+                    currentNextDate = this.calculateNextDate(currentNextDate, recurring.frequency);
+                }
+
+                // If next_date equals today, create the transaction and advance to next occurrence
+                if (currentNextDate === today) {
                     await TransactionService.addTransaction(
                         recurring.amount,
                         recurring.category_id,
-                        currentNextDate,
+                        today,
                         recurring.note ? `${recurring.note} ${i18n.t('recurring_tag')}` : i18n.t('recurring_default_note'),
-                        recurring.type
+                        recurring.type,
+                        recurring.payment_method
                     );
-
-                    currentNextDate = this.calculateNextDate(currentNextDate, recurring.frequency);
+                    currentNextDate = this.calculateNextDate(today, recurring.frequency);
                     count++;
                 }
 
-                // Update next_date in DB to the latest calculated date
+                // Update next_date in DB
                 await executeQuery(
                     'UPDATE recurring_transactions SET next_date = ? WHERE id = ?',
                     [currentNextDate, recurring.id]
@@ -149,7 +156,7 @@ class RecurringService {
             }
 
             if (totalProcessed > 0) {
-                console.log(`Processed ${totalProcessed} recurring transactions (catch-up)`);
+                console.log(`Processed ${totalProcessed} recurring transactions`);
             }
             return totalProcessed;
         } catch (error) {
