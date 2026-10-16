@@ -9,6 +9,7 @@ export interface Transaction {
     balance_cash?: number;
     balance_e_wallet?: number;
     created_at?: string;
+    updated_at?: string;
     // Joined fields
     category_name?: string;
     category_color?: string;

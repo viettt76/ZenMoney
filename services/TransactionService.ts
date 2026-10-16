@@ -114,7 +114,7 @@ class TransactionService {
             }
 
             await executeQuery(
-                'UPDATE transactions SET amount = ?, category_id = ?, date = ?, note = ?, type = ?, payment_method = ? WHERE id = ?',
+                'UPDATE transactions SET amount = ?, category_id = ?, date = ?, note = ?, type = ?, payment_method = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
                 [amount ?? null, categoryId ?? null, date ?? null, note ?? null, type ?? null, paymentMethod ?? 'e-wallet', id ?? null]
             );
             await this.recalculateBalances();

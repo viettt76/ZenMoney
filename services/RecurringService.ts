@@ -60,7 +60,7 @@ class RecurringService {
         try {
             await executeQuery(
                 `UPDATE recurring_transactions 
-         SET amount = ?, category_id = ?, frequency = ?, next_date = ?, note = ?, type = ?, is_active = ?, payment_method = ? 
+         SET amount = ?, category_id = ?, frequency = ?, next_date = ?, note = ?, type = ?, is_active = ?, payment_method = ?, updated_at = CURRENT_TIMESTAMP 
          WHERE id = ?`,
                 [amount, category_id, frequency, next_date, note, type, is_active, paymentMethod ?? 'e-wallet', id]
             );

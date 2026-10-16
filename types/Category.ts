@@ -5,6 +5,8 @@ export interface Category {
     icon: string;
     color: string;
     budget_limit: number;
+    created_at?: string;
+    updated_at?: string;
 }
 
 export interface CategorySummary {

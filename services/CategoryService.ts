@@ -64,7 +64,7 @@ class CategoryService {
     // Update category
     async updateCategory(id: number, name: string, type: string, color: string, icon: string, budgetLimit: number) {
         try {
-            await executeQuery('UPDATE categories SET name = ?, type = ?, color = ?, icon = ?, budget_limit = ? WHERE id = ?', [
+            await executeQuery('UPDATE categories SET name = ?, type = ?, color = ?, icon = ?, budget_limit = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [
                 name ?? null,
                 type ?? null,
                 color ?? null,

@@ -20,13 +20,22 @@ export const initDatabase = async () => {
         color TEXT DEFAULT '#6200ee',
         icon TEXT DEFAULT 'help-circle',
         budget_limit REAL DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
         // Migration: Add budget_limit column if it doesn't exist
         try {
             await db.execAsync('ALTER TABLE categories ADD COLUMN budget_limit REAL DEFAULT 0');
+        } catch {
+            // Column likely already exists, ignore
+        }
+
+        // Migration: Add updated_at column to categories if it doesn't exist
+        try {
+            await db.execAsync('ALTER TABLE categories ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+            await db.execAsync('UPDATE categories SET updated_at = created_at WHERE updated_at IS NULL');
         } catch {
             // Column likely already exists, ignore
         }
@@ -44,9 +53,18 @@ export const initDatabase = async () => {
         balance_cash REAL DEFAULT 0,
         balance_e_wallet REAL DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (category_id) REFERENCES categories (id)
       );
     `);
+
+        // Migration: Add updated_at column to transactions if it doesn't exist
+        try {
+            await db.execAsync('ALTER TABLE transactions ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+            await db.execAsync('UPDATE transactions SET updated_at = created_at WHERE updated_at IS NULL');
+        } catch {
+            // Column likely already exists, ignore
+        }
 
         // Migration: Update schema for balance and 'transfer' type
         try {
@@ -70,6 +88,7 @@ export const initDatabase = async () => {
                         balance_cash REAL DEFAULT 0,
                         balance_e_wallet REAL DEFAULT 0,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (category_id) REFERENCES categories (id)
                     )
                 `);
@@ -105,6 +124,7 @@ export const initDatabase = async () => {
         payment_method TEXT DEFAULT 'e-wallet',
         is_active INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (category_id) REFERENCES categories (id)
       );
     `);
@@ -112,6 +132,14 @@ export const initDatabase = async () => {
         // Migration: Add payment_method column to recurring_transactions if it doesn't exist
         try {
             await db.execAsync("ALTER TABLE recurring_transactions ADD COLUMN payment_method TEXT DEFAULT 'e-wallet'");
+        } catch {
+            // Column likely already exists, ignore
+        }
+
+        // Migration: Add updated_at column to recurring_transactions if it doesn't exist
+        try {
+            await db.execAsync('ALTER TABLE recurring_transactions ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+            await db.execAsync('UPDATE recurring_transactions SET updated_at = created_at WHERE updated_at IS NULL');
         } catch {
             // Column likely already exists, ignore
         }
