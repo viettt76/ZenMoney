@@ -3,11 +3,12 @@ import { useSettings } from '@/context/SettingsContext';
 import RecurringService from '@/services/RecurringService';
 import TransactionService from '@/services/TransactionService';
 import { Category } from '@/types';
+import { formatLocalDate } from '@/utils/date';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Keyboard, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ActivityIndicator, Button, IconButton, SegmentedButtons, Switch, Text, TextInput } from 'react-native-paper';
 
 export default function AddTransactionScreen() {
@@ -22,7 +23,7 @@ export default function AddTransactionScreen() {
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'e-wallet'>('e-wallet');
 
     // Core date state (ISO YYYY-MM-DD)
-    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [date, setDate] = useState(formatLocalDate(new Date()));
     // Display date state for text input
     const [textDate, setTextDate] = useState('');
 
@@ -31,6 +32,7 @@ export default function AddTransactionScreen() {
     const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
     const [isActive, setIsActive] = useState(true);
     const [loading, setLoading] = useState(false);
+    const isSubmittingRef = useRef(false);
     const [isInitialLoading, setIsInitialLoading] = useState(!!(id || recurringId));
 
     // UX: Remember last selected category for each type
@@ -170,7 +172,11 @@ export default function AddTransactionScreen() {
     };
 
     const handleSaveTransaction = async (numAmount: number) => {
-        if (type !== 'transfer' && !selectedCategory) return;
+        if (type !== 'transfer' && !selectedCategory) {
+            setLoading(false);
+            isSubmittingRef.current = false;
+            return;
+        }
         try {
             if (id) {
                 // Update existing transaction
@@ -234,6 +240,7 @@ export default function AddTransactionScreen() {
             alert(t('error_save'));
         } finally {
             setLoading(false);
+            isSubmittingRef.current = false;
         }
     };
 
@@ -265,10 +272,15 @@ export default function AddTransactionScreen() {
     };
 
     const onSave = async () => {
+        if (isSubmittingRef.current || loading) {
+            return;
+        }
+
         if (!amount || (type !== 'transfer' && !selectedCategory)) {
             return;
         }
 
+        isSubmittingRef.current = true;
         setLoading(true);
         const numAmount = parseFloat(amount.replace(/,/g, ''));
 
@@ -279,8 +291,8 @@ export default function AddTransactionScreen() {
                 const txDate = new Date(date);
                 const year = txDate.getFullYear();
                 const month = txDate.getMonth() + 1;
-                const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
-                const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+                const startDate = formatLocalDate(new Date(year, month - 1, 1));
+                const endDate = formatLocalDate(new Date(year, month, 0));
 
                 const categorySummaries = await TransactionService.getSummaryByCategory(startDate, endDate, 'expense');
 
@@ -294,7 +306,14 @@ export default function AddTransactionScreen() {
                         t('budget_warning_title'),
                         t('budget_exceeded_message', { category: selectedCategory?.name }),
                         [
-                            { text: t('cancel'), style: 'cancel', onPress: () => setLoading(false) },
+                            {
+                                text: t('cancel'),
+                                style: 'cancel',
+                                onPress: () => {
+                                    setLoading(false);
+                                    isSubmittingRef.current = false;
+                                }
+                            },
                             { text: t('continue_anyway'), onPress: () => handleSaveTransaction(numAmount) }
                         ]
                     );
@@ -304,7 +323,14 @@ export default function AddTransactionScreen() {
                         t('budget_warning_title'),
                         t('budget_warning_message', { percent: percentage.toFixed(0), category: selectedCategory?.name }),
                         [
-                            { text: t('cancel'), style: 'cancel', onPress: () => setLoading(false) },
+                            {
+                                text: t('cancel'),
+                                style: 'cancel',
+                                onPress: () => {
+                                    setLoading(false);
+                                    isSubmittingRef.current = false;
+                                }
+                            },
                             { text: t('continue_anyway'), onPress: () => handleSaveTransaction(numAmount) }
                         ]
                     );
@@ -346,7 +372,16 @@ export default function AddTransactionScreen() {
                     ) : null
                 }}
             />
-            <ScrollView contentContainerStyle={styles.content}>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+                style={{ flex: 1 }}
+            >
+                <ScrollView
+                    contentContainerStyle={[styles.content, { paddingBottom: 60 }]}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                >
 
                 <SegmentedButtons
                     value={type}
@@ -493,12 +528,13 @@ export default function AddTransactionScreen() {
                     onPress={onSave}
                     style={styles.saveButton}
                     loading={loading}
-                    disabled={!amount || (type !== 'transfer' && !selectedCategory)}
+                    disabled={loading || !amount || (type !== 'transfer' && !selectedCategory)}
                 >
                     {t('save')}
                 </Button>
 
             </ScrollView>
+            </KeyboardAvoidingView>
 
             <CategoryPicker
                 visible={showCategoryPicker}
@@ -506,7 +542,7 @@ export default function AddTransactionScreen() {
                 onSelect={setSelectedCategory}
                 type={type}
             />
-        </View >
+        </View>
     );
 }
 

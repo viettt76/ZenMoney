@@ -1,8 +1,11 @@
 import { executeQuery, getAllRows, getFirstRow } from '../database/db';
+import { calculateNextDate as calcNextDate, formatLocalDate } from '../utils/date';
 import i18n from '../utils/i18n';
 import TransactionService from './TransactionService';
 
 class RecurringService {
+    private isProcessing = false;
+
     // Get all recurring transactions
     async getAllRecurringTransactions() {
         try {
@@ -87,30 +90,18 @@ class RecurringService {
 
     // Calculate next date based on frequency
     calculateNextDate(currentDate: string, frequency: string) {
-        const date = new Date(currentDate);
-
-        switch (frequency) {
-            case 'daily':
-                date.setDate(date.getDate() + 1);
-                break;
-            case 'weekly':
-                date.setDate(date.getDate() + 7);
-                break;
-            case 'monthly':
-                date.setMonth(date.getMonth() + 1);
-                break;
-            case 'yearly':
-                date.setFullYear(date.getFullYear() + 1);
-                break;
-        }
-
-        return date.toISOString().split('T')[0];
+        return calcNextDate(currentDate, frequency);
     }
 
     // Process due recurring transactions (create actual transactions)
     async processDueRecurringTransactions() {
+        if (this.isProcessing) {
+            return 0;
+        }
+
+        this.isProcessing = true;
         try {
-            const today = new Date().toISOString().split('T')[0];
+            const today = formatLocalDate(new Date());
 
             // Get all active due recurring transactions
             const dueRecurring = await getAllRows(
@@ -124,31 +115,42 @@ class RecurringService {
             for (const recurring of dueRecurring) {
                 let currentNextDate = recurring.next_date;
                 let count = 0;
+                let iterations = 0;
+                const maxIterations = 365; // Safe guard against infinite loops
 
-                // Bug fix: Only create a transaction for TODAY, skip all missed past dates
-                // (which may have been skipped due to inactivity).
-                // Advance next_date to today first, then create exactly 1 transaction for today.
-                while (currentNextDate < today) {
-                    currentNextDate = this.calculateNextDate(currentNextDate, recurring.frequency);
-                }
+                // Process all missed and due occurrences up to today
+                while (currentNextDate <= today && iterations < maxIterations) {
+                    const noteTag = recurring.note
+                        ? `${recurring.note} ${i18n.t('recurring_tag')}`
+                        : i18n.t('recurring_default_note');
 
-                // If next_date equals today, create the transaction and advance to next occurrence
-                if (currentNextDate === today) {
-                    await TransactionService.addTransaction(
-                        recurring.amount,
-                        recurring.category_id,
-                        today,
-                        recurring.note ? `${recurring.note} ${i18n.t('recurring_tag')}` : i18n.t('recurring_default_note'),
-                        recurring.type,
-                        recurring.payment_method
+                    // Idempotency check: verify if a transaction already exists for this recurring execution
+                    const existing = await getFirstRow(
+                        `SELECT id FROM transactions 
+                         WHERE category_id = ? AND amount = ? AND date = ? AND type = ? AND note = ? AND payment_method = ?
+                         LIMIT 1`,
+                        [recurring.category_id, recurring.amount, currentNextDate, recurring.type, noteTag, recurring.payment_method ?? 'e-wallet']
                     );
-                    currentNextDate = this.calculateNextDate(today, recurring.frequency);
-                    count++;
+
+                    if (!existing) {
+                        await TransactionService.addTransaction(
+                            recurring.amount,
+                            recurring.category_id,
+                            currentNextDate,
+                            noteTag,
+                            recurring.type,
+                            recurring.payment_method
+                        );
+                        count++;
+                    }
+
+                    currentNextDate = this.calculateNextDate(currentNextDate, recurring.frequency);
+                    iterations++;
                 }
 
-                // Update next_date in DB
+                // Update next_date in DB to the next upcoming occurrence
                 await executeQuery(
-                    'UPDATE recurring_transactions SET next_date = ? WHERE id = ?',
+                    'UPDATE recurring_transactions SET next_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
                     [currentNextDate, recurring.id]
                 );
 
@@ -162,15 +164,18 @@ class RecurringService {
         } catch (error) {
             console.error('Error processing due recurring transactions:', error);
             throw error;
+        } finally {
+            this.isProcessing = false;
         }
     }
 
     // Get upcoming recurring transactions (next 30 days)
     async getUpcomingRecurring(days: number = 30) {
         try {
-            const today = new Date();
+            const todayStr = formatLocalDate(new Date());
             const futureDate = new Date();
-            futureDate.setDate(today.getDate() + days);
+            futureDate.setDate(futureDate.getDate() + days);
+            const futureDateStr = formatLocalDate(futureDate);
 
             const upcoming = await getAllRows(
                 `SELECT r.*, c.name as category_name, c.color as category_color, c.icon as category_icon
@@ -178,7 +183,7 @@ class RecurringService {
          LEFT JOIN categories c ON r.category_id = c.id
          WHERE r.is_active = ? AND r.next_date BETWEEN ? AND ?
          ORDER BY r.next_date ASC`,
-                [1, today.toISOString().split('T')[0], futureDate.toISOString().split('T')[0]]
+                [1, todayStr, futureDateStr]
             );
 
             return upcoming;
@@ -191,3 +196,4 @@ class RecurringService {
 }
 
 export default new RecurringService();
+

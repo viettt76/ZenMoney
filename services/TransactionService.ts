@@ -202,7 +202,7 @@ class TransactionService {
     }
 
     // Search transactions with filters
-    async searchTransactions(filters: { startDate?: string; endDate?: string; type?: string; categoryId?: number; paymentMethod?: string; limit?: number }): Promise<Transaction[]> {
+    async searchTransactions(filters: { startDate?: string; endDate?: string; type?: string; categoryId?: number; paymentMethod?: string; limit?: number; keyword?: string; note?: string }): Promise<Transaction[]> {
         try {
             let query = `
                 SELECT t.*, c.name as category_name, c.color as category_color, c.icon as category_icon
@@ -231,6 +231,11 @@ class TransactionService {
             if (filters.paymentMethod && filters.paymentMethod !== 'all') {
                 query += ' AND t.payment_method = ?';
                 params.push(filters.paymentMethod);
+            }
+            const noteFilter = filters.keyword || filters.note;
+            if (noteFilter && noteFilter.trim()) {
+                query += ' AND t.note LIKE ?';
+                params.push(`%${noteFilter.trim()}%`);
             }
 
             query += ' ORDER BY t.date DESC, t.created_at DESC';

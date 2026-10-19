@@ -7,7 +7,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { ActivityIndicator, Button, IconButton, Modal, Portal, Provider, SegmentedButtons, Text, TextInput } from 'react-native-paper';
+import { ActivityIndicator, Button, IconButton, Modal, Portal, Provider, Searchbar, SegmentedButtons, Text, TextInput } from 'react-native-paper';
 
 export default function HistoryScreen() {
     const { t } = useTranslation();
@@ -16,6 +16,9 @@ export default function HistoryScreen() {
     const { language } = useSettings();
     const [transactions, setTransactions] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+
+    // Search Query State
+    const [searchQuery, setSearchQuery] = useState('');
 
     // Filter State
     const [visible, setVisible] = useState(false);
@@ -36,6 +39,7 @@ export default function HistoryScreen() {
             if (type !== 'all') filters.type = type;
             if (categoryId) filters.categoryId = Number(categoryId);
             if (paymentMethod !== 'all') filters.paymentMethod = paymentMethod;
+            if (searchQuery.trim()) filters.keyword = searchQuery.trim();
             filters.limit = 100;
 
             const data = await TransactionService.searchTransactions(filters);
@@ -45,7 +49,7 @@ export default function HistoryScreen() {
         } finally {
             setLoading(false);
         }
-    }, [startDate, endDate, type, categoryId, paymentMethod]); // Bug fix: added paymentMethod to dependency array
+    }, [startDate, endDate, type, categoryId, paymentMethod, searchQuery]);
 
     useFocusEffect(
         React.useCallback(() => {
@@ -54,12 +58,12 @@ export default function HistoryScreen() {
     );
 
     const resetFilters = () => {
+        setSearchQuery('');
         setStartDate('');
         setEndDate('');
         setType('all');
         setPaymentMethod('all');
         setVisible(false);
-        loadTransactions();
     };
 
     const applyFilters = () => {
@@ -101,6 +105,14 @@ export default function HistoryScreen() {
                             <IconButton icon="filter-variant" onPress={() => setVisible(true)} />
                         )
                     }}
+                />
+
+                <Searchbar
+                    placeholder={t('search_note_placeholder')}
+                    onChangeText={setSearchQuery}
+                    value={searchQuery}
+                    style={styles.searchbar}
+                    inputStyle={styles.searchInput}
                 />
 
                 <FlatList
@@ -223,6 +235,17 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#f5f5f5',
+    },
+    searchbar: {
+        marginHorizontal: 16,
+        marginTop: 12,
+        marginBottom: 4,
+        elevation: 2,
+        backgroundColor: '#fff',
+        borderRadius: 10,
+    },
+    searchInput: {
+        fontSize: 15,
     },
     list: {
         padding: 16,
